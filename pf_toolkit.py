@@ -5,15 +5,18 @@ import importlib
 import subprocess
 
 # --- VERSION DE LA SUITE PERFECT FRAME ---
-SUITE_VERSION = "1.0.0"
+SUITE_VERSION = "1.0.1"
 
 NUKE_DIR = os.path.expanduser("~/.nuke").replace("\\", "/")
 TOOLSETS_DIR = os.path.join(NUKE_DIR, "PF_ToolSets").replace("\\", "/")
 
 def _paste_tcl_node(tcl_script):
-    for n in nuke.selectedNodes():
-        n.setSelected(False)
-    nuke.nodePaste(tcl_script)
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".nk", mode="w")
+    tmp.write(tcl_script)
+    tmp.close()
+    nuke.nodePaste(tmp.name)
+    os.remove(tmp.name)
 
 # ==============================================================================
 # 1. RUTAS PERFECT FRAME (Relink Dinamico)
@@ -66,7 +69,194 @@ def create_rutas_pf():
     return ctrl
 
 # ==============================================================================
-# 2. PF SLATE BURN-IN (Con Artista Responsable)
+# 2. PF SMART WRITE (Auto-Carpetas + Read desde Write)
+# ==============================================================================
+def create_pf_smart_write():
+    w = nuke.createNode("Write", inpanel=True)
+    w.setName("PF_SmartWrite1")
+    w['tile_color'].setValue(0xffaa00ff)
+    w['note_font_size'].setValue(14)
+    w['label'].setValue("PERFECT FRAME RENDER (v" + SUITE_VERSION + ")\\n[file tail [value file]]")
+    w['beforeRender'].setValue("import os, nuke; d = os.path.dirname(nuke.filename(nuke.thisNode())); os.makedirs(d) if d and not os.path.exists(d) else None")
+
+    tab = nuke.Tab_Knob("pf_write_tab", "PF SmartWrite")
+    w.addKnob(tab)
+    w.addKnob(nuke.Text_Knob("pf_info", "PERFECT FRAME v" + SUITE_VERSION, "Crea carpetas automaticamente al dar Render."))
+
+    auto_path_code = "import nuke, os\\nn = nuke.thisNode()\\nroot_name = nuke.root().name()\\nif not root_name or root_name == 'Root':\\n    nuke.message('Guarda primero el proyecto .nk.')\\nelse:\\n    proj_dir = os.path.dirname(root_name).replace(chr(92), '/')\\n    shot_base = os.path.splitext(os.path.basename(root_name))[0]\\n    render_path = '{0}/renders/{1}/{1}.%04d.exr'.format(proj_dir, shot_base)\\n    n['file'].setValue(render_path)\\n    n['file_type'].setValue('exr')"
+    btn_auto = nuke.PyScript_Knob("btn_auto_path", "1. Autocompletar Ruta EXR", auto_path_code)
+    btn_auto.setFlag(nuke.STARTLINE)
+    w.addKnob(btn_auto)
+
+    read_from_write_code = "import nuke\\nw = nuke.thisNode()\\npath = w['file'].getValue()\\nif not path:\\n    nuke.message('El nodo Write no tiene ruta.')\\nelse:\\n    r = nuke.createNode('Read', inpanel=False)\\n    r['file'].setValue(path)\\n    r['first'].setValue(int(nuke.root()['first_frame'].getValue()))\\n    r['last'].setValue(int(nuke.root()['last_frame'].getValue()))\\n    r.setXpos(w.xpos())\\n    r.setYpos(w.ypos() + 90)"
+    btn_read = nuke.PyScript_Knob("btn_read_write", "2. Crear Nodo Read desde Render", read_from_write_code)
+    btn_read.setFlag(nuke.STARTLINE)
+    w.addKnob(btn_read)
+    return w
+
+# ==============================================================================
+# 3. PF EXR SPLITTER (Desglose automatico Multipass AOV)
+# ==============================================================================
+def split_selected_exr():
+    sel = nuke.selectedNodes("Read")
+    if not sel:
+        nuke.message("Selecciona primero un nodo Read con un archivo EXR multicanal.")
+        return
+    read_node = sel[0]
+    layers = list(set([c.split('.')[0] for c in read_node.channels()]))
+    skip = ['rgba', 'rgb', 'alpha', 'depth']
+    aovs = [l for l in layers if l not in skip]
+    if not aovs:
+        nuke.message("Este Read solo contiene canales estandar (RGBA). No se detectaron AOVs 3D.")
+        return
+
+    base_x = read_node.xpos()
+    base_y = read_node.ypos() + 140
+    prev_merge = None
+
+    for idx, layer in enumerate(sorted(aovs)):
+        shuf = nuke.nodes.Shuffle(label=layer, inputs=[read_node])
+        shuf['in'].setValue(layer)
+        shuf.setXpos(base_x + (idx * 140))
+        shuf.setYpos(base_y)
+
+        if prev_merge is None:
+            prev_merge = shuf
+        else:
+            m = nuke.nodes.Merge2(operation="plus", inputs=[prev_merge, shuf], label="Plus " + layer)
+            m.setXpos(base_x + (idx * 140))
+            m.setYpos(base_y + 100)
+            prev_merge = m
+
+    nuke.message("Se desplegaron {0} pases AOV desde {1}.".format(len(aovs), read_node.name()))
+
+# ==============================================================================
+# 4. PF EXPO GLOW (Glow optico exponencial)
+# ==============================================================================
+def create_pf_expoglow():
+    tcl = """Group {
+ name PF_ExpoGlow
+ tile_color 0xff5500ff
+ note_font_size 14
+ selected true
+ addUserKnob {20 pf_glow_tab l "PF ExpoGlow"}
+ addUserKnob {26 info l "PERFECT FRAME" T "Glow exponencial con caida fisica realista"}
+ addUserKnob {7 intensity l "Intensidad Global" R 0 5}
+ intensity 1
+ addUserKnob {7 threshold l "Umbral de Altas Luces (Threshold)" R 0 2}
+ threshold 0.5
+ addUserKnob {7 radius l "Radio Base" R 1 50}
+ radius 4
+ addUserKnob {18 tint l "Tinte de Color"}
+ tint {1 1 1}
+ addUserKnob {6 glow_only l "Ver Solo el Glow" +STARTLINE}
+}
+ Input {
+  inputs 0
+  name Input1
+  xpos 0
+  ypos -250
+ }
+set N_in [stack 0]
+ Keyer {
+  operation "luminance key"
+  range {{parent.threshold} {parent.threshold+0.5} 1 1}
+  name Keyer_Threshold
+  xpos 180
+  ypos -250
+ }
+ Premult {
+  name Premult1
+  xpos 180
+  ypos -200
+ }
+set N_key [stack 0]
+ Blur {
+  channels rgba
+  size {{parent.radius}}
+  name Blur_1x
+  xpos 100
+  ypos -120
+ }
+push $N_key
+ Blur {
+  channels rgba
+  size {{parent.radius*4}}
+  name Blur_4x
+  xpos 200
+  ypos -120
+ }
+push $N_key
+ Blur {
+  channels rgba
+  size {{parent.radius*16}}
+  name Blur_16x
+  xpos 300
+  ypos -120
+ }
+push $N_key
+ Blur {
+  channels rgba
+  size {{parent.radius*64}}
+  name Blur_64x
+  xpos 400
+  ypos -120
+ }
+ Merge2 {
+  inputs 2
+  operation plus
+  name Plus1
+  xpos 300
+  ypos -50
+ }
+ Merge2 {
+  inputs 2
+  operation plus
+  name Plus2
+  xpos 200
+  ypos -10
+ }
+ Merge2 {
+  inputs 2
+  operation plus
+  name Plus3
+  xpos 100
+  ypos 30
+ }
+ Multiply {
+  channels rgb
+  value {{parent.tint.r*parent.intensity*0.25} {parent.tint.g*parent.intensity*0.25} {parent.tint.b*parent.intensity*0.25} 1}
+  name Multiply_Tint
+  xpos 100
+  ypos 80
+ }
+set N_glow [stack 0]
+push $N_in
+ Merge2 {
+  inputs 2
+  operation plus
+  bbox B
+  name Merge_Final
+  xpos 0
+  ypos 80
+ }
+ Switch {
+  inputs 2
+  which {{parent.glow_only}}
+  name Switch_View
+  xpos 0
+  ypos 140
+ }
+ Output {
+  name Output1
+  xpos 0
+  ypos 210
+ }
+end_group"""
+    _save_and_paste_tcl(tcl)
+
+# ==============================================================================
+# 5. PF SLATE BURN-IN (Con Artista Responsable)
 # ==============================================================================
 def create_pf_slate():
     tcl = """Group {
@@ -76,7 +266,7 @@ def create_pf_slate():
  label "Artista: \\[value artist_name]\\nEstado: \\[value shot_status]"
  selected true
  addUserKnob {20 pf_slate_tab l "PF Slate Burn-In"}
- addUserKnob {26 info_header l "PERFECT FRAME v1.0.0" T "Generador de Burn-In para revision y control de planos"}
+ addUserKnob {26 info_header l "PERFECT FRAME v1.0.1" T "Generador de Burn-In para revision y control de planos"}
  addUserKnob {26 div_id l "Identificacion del Plano"}
  addUserKnob {1 artist_name l "Artista Responsable"}
  artist_name "SIN ASIGNAR"
@@ -89,7 +279,7 @@ def create_pf_slate():
  shot_notes "v001 - Comp Preliminar"
  addUserKnob {26 div_style l "Apariencia Visual"}
  addUserKnob {1 studio_title l "Titulo del Estudio"}
- studio_title "PERFECT FRAME | v1.0.0"
+ studio_title "PERFECT FRAME | v1.0.1"
  addUserKnob {7 bar_height l "Altura de Barras (px)" R 25 120}
  bar_height 55
  addUserKnob {7 bar_opacity l "Opacidad de Barras" R 0 1}
@@ -196,37 +386,121 @@ def create_pf_slate():
   xpos 0
   ypos 280
  }
- end_group"""
+end_group"""
     _save_and_paste_tcl(tcl)
 
 # ==============================================================================
-# 3. PF SMART WRITE
+# 6. PF QC INSPECTOR (Auditor tecnico, NaNs/Negativos, Diferencia y Grano)
 # ==============================================================================
-def create_pf_smart_write():
-    w = nuke.createNode("Write", inpanel=True)
-    w.setName("PF_SmartWrite1")
-    w['tile_color'].setValue(0xffaa00ff)
-    w['note_font_size'].setValue(14)
-    w['label'].setValue("PERFECT FRAME RENDER (v" + SUITE_VERSION + ")\\n[file tail [value file]]")
-    w['beforeRender'].setValue("import os, nuke; d = os.path.dirname(nuke.filename(nuke.thisNode())); os.makedirs(d) if d and not os.path.exists(d) else None")
-
-    tab = nuke.Tab_Knob("pf_write_tab", "PF SmartWrite")
-    w.addKnob(tab)
-    w.addKnob(nuke.Text_Knob("pf_info", "PERFECT FRAME v" + SUITE_VERSION, "Crea carpetas automaticamente al dar Render."))
-
-    auto_path_code = "import nuke, os\\nn = nuke.thisNode()\\nroot_name = nuke.root().name()\\nif not root_name or root_name == 'Root':\\n    nuke.message('Guarda primero el proyecto .nk.')\\nelse:\\n    proj_dir = os.path.dirname(root_name).replace(chr(92), '/')\\n    shot_base = os.path.splitext(os.path.basename(root_name))[0]\\n    render_path = '{0}/renders/{1}/{1}.%04d.exr'.format(proj_dir, shot_base)\\n    n['file'].setValue(render_path)\\n    n['file_type'].setValue('exr')"
-    btn_auto = nuke.PyScript_Knob("btn_auto_path", "1. Autocompletar Ruta EXR", auto_path_code)
-    btn_auto.setFlag(nuke.STARTLINE)
-    w.addKnob(btn_auto)
-
-    read_from_write_code = "import nuke\\nw = nuke.thisNode()\\npath = w['file'].getValue()\\nif not path:\\n    nuke.message('El nodo Write no tiene ruta.')\\nelse:\\n    r = nuke.createNode('Read', inpanel=False)\\n    r['file'].setValue(path)\\n    r['first'].setValue(int(nuke.root()['first_frame'].getValue()))\\n    r['last'].setValue(int(nuke.root()['last_frame'].getValue()))\\n    r.setXpos(w.xpos())\\n    r.setYpos(w.ypos() + 90)"
-    btn_read = nuke.PyScript_Knob("btn_read_write", "2. Crear Nodo Read desde Render", read_from_write_code)
-    btn_read.setFlag(nuke.STARTLINE)
-    w.addKnob(btn_read)
-    return w
+def create_pf_qc_inspector():
+    tcl = """Group {
+ name PF_QC_Inspector
+ tile_color 0x00aaffff
+ note_font_size 14
+ label "Modo: \\[value qc_mode]"
+ selected true
+ addUserKnob {20 pf_qc_tab l "PF QC Inspector"}
+ addUserKnob {26 info l "PERFECT FRAME QC" T "Inspector tecnico antes de exportar. Input 1: Comp | Input 2: Plate Original"}
+ addUserKnob {4 qc_mode l "Modo de Inspeccion" M {"Pass-Through (Comp Final)" "Diferencia Extrema vs Plate" "Mapa de Grano / Nitidez (High-Pass)" "Detector de Pixeles Rotos (NaN / Negativos)"}}
+ addUserKnob {6 fix_nans l "Reparar NaNs y Negativos Automaticamente en la Salida" +STARTLINE}
+ fix_nans true
+ addUserKnob {7 diff_gain l "Multiplicador de Diferencia" R 1 100}
+ diff_gain 25
+}
+ Input {
+  inputs 0
+  name Plate_Ref
+  xpos 260
+  ypos -220
+  number 1
+ }
+ Input {
+  inputs 0
+  name Comp_In
+  xpos 0
+  ypos -220
+ }
+ Expression {
+  expr0 "isnan(r) || isinf(r) ? 0 : (parent.fix_nans ? max(0, r) : r)"
+  expr1 "isnan(g) || isinf(g) ? 0 : (parent.fix_nans ? max(0, g) : g)"
+  expr2 "isnan(b) || isinf(b) ? 0 : (parent.fix_nans ? max(0, b) : b)"
+  name Sanitize_Pixels
+  xpos 0
+  ypos -150
+ }
+set N_clean [stack 0]
+ Expression {
+  expr0 "isnan(r) || isinf(r) || r < 0 ? 1 : r*0.15"
+  expr1 "isnan(g) || isinf(g) || g < 0 ? 0 : g*0.15"
+  expr2 "isnan(b) || isinf(b) || b < 0 ? 1 : b*0.15"
+  name NaN_Neg_Visualizer
+  xpos 380
+  ypos -60
+ }
+push $N_clean
+ Blur {
+  channels rgba
+  size 6
+  name Blur_HighPass
+  xpos 200
+  ypos -100
+ }
+push $N_clean
+ Merge2 {
+  inputs 2
+  operation minus
+  name Merge_HighPass
+  xpos 200
+  ypos -50
+ }
+ Multiply {
+  channels rgb
+  value 15
+  name Boost_Grain
+  xpos 200
+  ypos -10
+ }
+ Add {
+  channels rgb
+  value 0.5
+  name Offset_MidGrey
+  xpos 200
+  ypos 30
+ }
+push 0
+push $N_clean
+ Merge2 {
+  inputs 2
+  operation difference
+  name Diff_Plate
+  xpos 80
+  ypos -50
+ }
+ Multiply {
+  channels rgb
+  value {{parent.diff_gain}}
+  name Boost_Diff
+  xpos 80
+  ypos 10
+ }
+push $N_clean
+ Switch {
+  inputs 4
+  which {{parent.qc_mode}}
+  name Switch_QC_Mode
+  xpos 0
+  ypos 120
+ }
+ Output {
+  name Output1
+  xpos 0
+  ypos 200
+ }
+end_group"""
+    _save_and_paste_tcl(tcl)
 
 # ==============================================================================
-# 4. FUNCION DE ACTUALIZACION DESDE GITHUB (GIT PULL)
+# FUNCION DE ACTUALIZACION DESDE GITHUB (GIT PULL)
 # ==============================================================================
 def update_suite_from_github():
     try:
@@ -250,31 +524,29 @@ def update_suite_from_github():
 # ==============================================================================
 # CONSTRUCCION DE MENUS
 # ==============================================================================
-def _save_and_paste_tcl(tcl_string):
-    import tempfile
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".nk", mode="w")
-    tmp.write(tcl_string)
-    tmp.close()
-    nuke.nodePaste(tmp.name)
-    os.remove(tmp.name)
-
 def build_pf_menus():
     for bar_name in ["Nuke", "Nodes"]:
         menubar = nuke.menu(bar_name)
         pf_menu = menubar.addMenu("PERFECT FRAME")
         pf_menu.clearMenu()
 
-        # Pipeline
+        # 1. Pipeline y Rutas
         pipe = pf_menu.addMenu("1. Pipeline y Rutas")
         pipe.addCommand("RUTAS PERFECT FRAME (Relink Master)", "import pf_toolkit; pf_toolkit.create_rutas_pf()")
         pipe.addCommand("PF SmartWrite (Auto-Folders)", "import pf_toolkit; pf_toolkit.create_pf_smart_write()")
+        pipe.addCommand("PF EXR Multipass Splitter", "import pf_toolkit; pf_toolkit.split_selected_exr()")
 
-        # QC y Entregas
-        qc = pf_menu.addMenu("2. QC y Entregas")
+        # 2. Lookdev y Comp
+        comp = pf_menu.addMenu("2. Lookdev y Comp")
+        comp.addCommand("PF ExpoGlow (Glow Optico)", "import pf_toolkit; pf_toolkit.create_pf_expoglow()")
+
+        # 3. QC y Entregas
+        qc = pf_menu.addMenu("3. QC y Entregas")
         qc.addCommand("PF Slate Burn-In (Con Artista)", "import pf_toolkit; pf_toolkit.create_pf_slate()")
+        qc.addCommand("PF QC Inspector (NaNs, Diff y Grano)", "import pf_toolkit; pf_toolkit.create_pf_qc_inspector()")
 
-        # ToolSets personalizados locales
-        custom_menu = pf_menu.addMenu("3. ToolSets del Estudio")
+        # 4. ToolSets personalizados locales
+        custom_menu = pf_menu.addMenu("4. ToolSets del Estudio")
         if os.path.exists(TOOLSETS_DIR):
             for root, dirs, files in os.walk(TOOLSETS_DIR):
                 for f in sorted(files):
