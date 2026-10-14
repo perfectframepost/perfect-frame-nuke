@@ -4,9 +4,10 @@ import os
 import importlib
 import subprocess
 import shutil
+import stat
 
 # --- VERSION DE LA SUITE PERFECT FRAME ---
-SUITE_VERSION = "1.0.4"
+SUITE_VERSION = "1.0.5"
 
 NUKE_DIR = os.path.expanduser("~/.nuke").replace("\\", "/")
 TOOLSETS_DIR = os.path.join(NUKE_DIR, "PF_ToolSets").replace("\\", "/")
@@ -280,7 +281,7 @@ def create_pf_slate():
  label "Artista: \\[value artist_name]\\nEstado: \\[value shot_status]"
  selected true
  addUserKnob {20 pf_slate_tab l "PF Slate Burn-In"}
- addUserKnob {26 info_header l "Perfect Frame v1.0.4" T "Generador de Burn-In para revision y control de planos"}
+ addUserKnob {26 info_header l "Perfect Frame v1.0.5" T "Generador de Burn-In para revision y control de planos"}
  addUserKnob {26 div_id l "Identificacion del Plano"}
  addUserKnob {1 artist_name l "Artista Responsable"}
  artist_name "SIN ASIGNAR"
@@ -293,7 +294,7 @@ def create_pf_slate():
  shot_notes "v001 - Comp Preliminar"
  addUserKnob {26 div_style l "Apariencia Visual"}
  addUserKnob {1 studio_title l "Titulo del Estudio"}
- studio_title "Perfect Frame | v1.0.4"
+ studio_title "Perfect Frame | v1.0.5"
  addUserKnob {7 bar_height l "Altura de Barras (px)" R 25 120}
  bar_height 55
  addUserKnob {7 bar_opacity l "Opacidad de Barras" R 0 1}
@@ -510,11 +511,11 @@ push $N_clean
   xpos 0
   ypos 200
  }
-end_group"""
+ end_group"""
     _save_and_paste_tcl(tcl)
 
 # ==============================================================================
-# FUNCION DE ACTUALIZACION DESDE GITHUB (GIT PULL INTELIGENTE)
+# FUNCION DE ACTUALIZACION DESDE GITHUB
 # ==============================================================================
 def update_suite_from_github():
     try:
@@ -541,8 +542,13 @@ def update_suite_from_github():
         nuke.message("No se pudo ejecutar Git Pull:\n" + str(e))
 
 # ==============================================================================
-# FUNCION DE DESINSTALACION AUTOMATICA
+# FUNCION DE DESINSTALACION ROBUSTA (Blindada contra WinError 5)
 # ==============================================================================
+def _remove_readonly(func, path, excinfo):
+    """Quita el atributo de solo lectura que Windows pone en archivos internos de .git"""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
 def uninstall_perfect_frame():
     confirm = nuke.ask("¿Estás seguro de que deseas desinstalar la suite Perfect Frame de este equipo?\nSe eliminarán los ganchos de configuración y los archivos locales.")
     if not confirm:
@@ -569,16 +575,16 @@ def uninstall_perfect_frame():
             with open(menu_path, "w", encoding="utf-8") as f:
                 f.writelines(clean_lines)
 
-        # 3. Borrar la carpeta del repositorio físico
+        # 3. Borrar la carpeta del repositorio físico con manejo de permisos de Windows
         if os.path.exists(repo_path) and ".nuke" in repo_path:
-            shutil.rmtree(repo_path)
+            shutil.rmtree(repo_path, onerror=_remove_readonly)
 
         nuke.message("Desinstalación completada con éxito.\nReinicia Nuke para finalizar la limpieza del sistema.")
     except Exception as e:
         nuke.message("Ocurrió un error durante la desinstalación: " + str(e))
 
 # ==============================================================================
-# CONSTRUCCION DE MENUS (Tipografía refinada: Perfect Frame)
+# CONSTRUCCION DE MENUS
 # ==============================================================================
 def build_pf_menus():
     for bar_name in ["Nuke", "Nodes"]:
