@@ -5,10 +5,11 @@ import importlib
 import subprocess
 
 # --- VERSION DE LA SUITE PERFECT FRAME ---
-SUITE_VERSION = "1.0.1"
+SUITE_VERSION = "1.0.2"
 
 NUKE_DIR = os.path.expanduser("~/.nuke").replace("\\", "/")
 TOOLSETS_DIR = os.path.join(NUKE_DIR, "PF_ToolSets").replace("\\", "/")
+REPO_DIR = os.path.join(NUKE_DIR, "perfect-frame-nuke").replace("\\", "/")
 
 def _paste_tcl_node(tcl_script):
     import tempfile
@@ -266,7 +267,7 @@ def create_pf_slate():
  label "Artista: \\[value artist_name]\\nEstado: \\[value shot_status]"
  selected true
  addUserKnob {20 pf_slate_tab l "PF Slate Burn-In"}
- addUserKnob {26 info_header l "PERFECT FRAME v1.0.1" T "Generador de Burn-In para revision y control de planos"}
+ addUserKnob {26 info_header l "PERFECT FRAME v1.0.2" T "Generador de Burn-In para revision y control de planos"}
  addUserKnob {26 div_id l "Identificacion del Plano"}
  addUserKnob {1 artist_name l "Artista Responsable"}
  artist_name "SIN ASIGNAR"
@@ -279,7 +280,7 @@ def create_pf_slate():
  shot_notes "v001 - Comp Preliminar"
  addUserKnob {26 div_style l "Apariencia Visual"}
  addUserKnob {1 studio_title l "Titulo del Estudio"}
- studio_title "PERFECT FRAME | v1.0.1"
+ studio_title "PERFECT FRAME | v1.0.2"
  addUserKnob {7 bar_height l "Altura de Barras (px)" R 25 120}
  bar_height 55
  addUserKnob {7 bar_opacity l "Opacidad de Barras" R 0 1}
@@ -504,7 +505,8 @@ end_group"""
 # ==============================================================================
 def update_suite_from_github():
     try:
-        process = subprocess.Popen(["git", "pull"], cwd=NUKE_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        # CORRECCION: Se ejecuta git pull dentro de la subcarpeta del repositorio
+        process = subprocess.Popen(["git", "pull"], cwd=REPO_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
         stdout, stderr = process.communicate()
         
         if process.returncode == 0:
