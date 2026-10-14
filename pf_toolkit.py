@@ -1,27 +1,14 @@
+# -*- coding: utf-8 -*-
 import nuke
 import os
 import importlib
 import subprocess
 
-# 1. Definir rutas
-nuke_dir = os.path.expanduser("~/.nuke").replace("\\", "/")
-toolkit_path = os.path.join(nuke_dir, "pf_toolkit.py").replace("\\", "/")
-menu_path = os.path.join(nuke_dir, "menu.py").replace("\\", "/")
-toolsets_dir = os.path.join(nuke_dir, "PF_ToolSets").replace("\\", "/")
+# --- VERSION DE LA SUITE PERFECT FRAME ---
+SUITE_VERSION = "1.0.0"
 
-if not os.path.exists(toolsets_dir):
-    os.makedirs(toolsets_dir)
-
-# 2. Código maestro con soporte para Git Pull
-toolkit_code = '''# -*- coding: utf-8 -*-
-import nuke
-import os
-import importlib
-import subprocess
-
-SUITE_VERSION = "1.1.0"
-NUKE_DIR = os.path.expanduser("~/.nuke").replace("\\\\", "/")
-TOOLSETS_DIR = os.path.join(NUKE_DIR, "PF_ToolSets").replace("\\\\", "/")
+NUKE_DIR = os.path.expanduser("~/.nuke").replace("\\", "/")
+TOOLSETS_DIR = os.path.join(NUKE_DIR, "PF_ToolSets").replace("\\", "/")
 
 def _paste_tcl_node(tcl_script):
     for n in nuke.selectedNodes():
@@ -45,11 +32,11 @@ def create_rutas_pf():
     ctrl.setName(node_name)
     ctrl['tile_color'].setValue(0xff5500ff)
     ctrl['note_font_size'].setValue(18)
-    ctrl['label'].setValue("RUTA ACTIVA:\\n[value base_path]")
+    ctrl['label'].setValue("RUTA ACTIVA (v" + SUITE_VERSION + "):\n[value base_path]")
 
     tab = nuke.Tab_Knob("path_ctrl_tab", "RUTAS PERFECT FRAME")
     ctrl.addKnob(tab)
-    ctrl.addKnob(nuke.Text_Knob("info_artist", "RUTAS PERFECT FRAME", "Cambia esta carpeta para reconectar todo el proyecto a tu disco local:"))
+    ctrl.addKnob(nuke.Text_Knob("info_artist", "RUTAS PERFECT FRAME v" + SUITE_VERSION, "Cambia esta carpeta para reconectar todo el proyecto a tu disco local:"))
     ctrl.addKnob(nuke.File_Knob("base_path", "Ruta Base del Proyecto"))
 
     reload_code = "import nuke\\ncount = 0\\nfor r in nuke.allNodes():\\n    if r.knob('reload') and r.Class() != 'Write':\\n        r.knob('reload').execute()\\n        count += 1\\nnuke.message('Se recargaron ' + str(count) + ' nodos correctamente.')"
@@ -72,7 +59,7 @@ def create_rutas_pf():
     ctrl.addKnob(nuke.PyScript_Knob("btn_link", "2. Vincular Nodos al Controlador", link_code))
 
     ctrl.addKnob(nuke.Text_Knob("div2", "Entrega / Desvinculacion", ""))
-    bake_code = "import nuke\\nn = nuke.thisNode()\\ntoken = chr(91) + 'value ' + n.name() + '.base_path' + chr(93)\\ncount = 0\\nfor node in nuke.allNodes():\\n    if node.knob('file') and node.Class() != 'Write':\\n        val = node.knob('file').getValue()\\n        if token in val:\\n            baked = node.knob('file').getEvaluatedValue().replace(chr(92), '/')\\n            node.knob('file').setValue(baked)\\n            count += 1\\nnnuke.message('Se hornearon ' + str(count) + ' nodos a rutas fijas.')"
+    bake_code = "import nuke\\nn = nuke.thisNode()\\ntoken = chr(91) + 'value ' + n.name() + '.base_path' + chr(93)\\ncount = 0\\nfor node in nuke.allNodes():\\n    if node.knob('file') and node.Class() != 'Write':\\n        val = node.knob('file').getValue()\\n        if token in val:\\n            baked = node.knob('file').getEvaluatedValue().replace(chr(92), '/')\\n            node.knob('file').setValue(baked)\\n            count += 1\\nnuke.message('Se hornearon ' + str(count) + ' nodos a rutas fijas.')"
     btn_bake = nuke.PyScript_Knob("btn_bake", "Hornear Rutas (Convertir a Texto Fijo)", bake_code)
     btn_bake.setFlag(nuke.STARTLINE)
     ctrl.addKnob(btn_bake)
@@ -89,7 +76,7 @@ def create_pf_slate():
  label "Artista: \\[value artist_name]\\nEstado: \\[value shot_status]"
  selected true
  addUserKnob {20 pf_slate_tab l "PF Slate Burn-In"}
- addUserKnob {26 info_header l "PERFECT FRAME" T "Generador de Burn-In para revision y control de planos"}
+ addUserKnob {26 info_header l "PERFECT FRAME v1.0.0" T "Generador de Burn-In para revision y control de planos"}
  addUserKnob {26 div_id l "Identificacion del Plano"}
  addUserKnob {1 artist_name l "Artista Responsable"}
  artist_name "SIN ASIGNAR"
@@ -102,7 +89,7 @@ def create_pf_slate():
  shot_notes "v001 - Comp Preliminar"
  addUserKnob {26 div_style l "Apariencia Visual"}
  addUserKnob {1 studio_title l "Titulo del Estudio"}
- studio_title "PERFECT FRAME | Post-Production Lab"
+ studio_title "PERFECT FRAME | v1.0.0"
  addUserKnob {7 bar_height l "Altura de Barras (px)" R 25 120}
  bar_height 55
  addUserKnob {7 bar_opacity l "Opacidad de Barras" R 0 1}
@@ -209,7 +196,7 @@ def create_pf_slate():
   xpos 0
   ypos 280
  }
-end_group"""
+ end_group"""
     _save_and_paste_tcl(tcl)
 
 # ==============================================================================
@@ -220,12 +207,12 @@ def create_pf_smart_write():
     w.setName("PF_SmartWrite1")
     w['tile_color'].setValue(0xffaa00ff)
     w['note_font_size'].setValue(14)
-    w['label'].setValue("PERFECT FRAME RENDER\\n[file tail [value file]]")
+    w['label'].setValue("PERFECT FRAME RENDER (v" + SUITE_VERSION + ")\\n[file tail [value file]]")
     w['beforeRender'].setValue("import os, nuke; d = os.path.dirname(nuke.filename(nuke.thisNode())); os.makedirs(d) if d and not os.path.exists(d) else None")
 
     tab = nuke.Tab_Knob("pf_write_tab", "PF SmartWrite")
     w.addKnob(tab)
-    w.addKnob(nuke.Text_Knob("pf_info", "PERFECT FRAME", "Crea carpetas automaticamente al dar Render."))
+    w.addKnob(nuke.Text_Knob("pf_info", "PERFECT FRAME v" + SUITE_VERSION, "Crea carpetas automaticamente al dar Render."))
 
     auto_path_code = "import nuke, os\\nn = nuke.thisNode()\\nroot_name = nuke.root().name()\\nif not root_name or root_name == 'Root':\\n    nuke.message('Guarda primero el proyecto .nk.')\\nelse:\\n    proj_dir = os.path.dirname(root_name).replace(chr(92), '/')\\n    shot_base = os.path.splitext(os.path.basename(root_name))[0]\\n    render_path = '{0}/renders/{1}/{1}.%04d.exr'.format(proj_dir, shot_base)\\n    n['file'].setValue(render_path)\\n    n['file_type'].setValue('exr')"
     btn_auto = nuke.PyScript_Knob("btn_auto_path", "1. Autocompletar Ruta EXR", auto_path_code)
@@ -243,7 +230,6 @@ def create_pf_smart_write():
 # ==============================================================================
 def update_suite_from_github():
     try:
-        # Ejecuta git pull en la carpeta .nuke (o el repositorio clonado)
         process = subprocess.Popen(["git", "pull"], cwd=NUKE_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
         stdout, stderr = process.communicate()
         
@@ -254,12 +240,12 @@ def update_suite_from_github():
             output_msg = stdout.decode('utf-8', errors='ignore').strip()
             if not output_msg:
                 output_msg = "La suite ya estaba en su version mas reciente."
-            nuke.message("¡Actualizacion exitosa desde GitHub!\\n\\n" + output_msg)
+            nuke.message("¡Actualizacion exitosa desde GitHub! (v" + SUITE_VERSION + ")\\n\\n" + output_msg)
         else:
             err_msg = stderr.decode('utf-8', errors='ignore').strip()
             nuke.message("Error al sincronizar con GitHub:\\n" + err_msg)
     except Exception as e:
-        nuke.message("No se pudo ejecutar Git Pull. Asegurate de que Git este instalado en el sistema:\\n" + str(e))
+        nuke.message("No se pudo ejecutar Git Pull:\\n" + str(e))
 
 # ==============================================================================
 # CONSTRUCCION DE MENUS
@@ -299,28 +285,3 @@ def build_pf_menus():
 
         pf_menu.addSeparator()
         pf_menu.addCommand("🔄 Sincronizar / Actualizar desde GitHub (v" + SUITE_VERSION + ")", "import pf_toolkit; pf_toolkit.update_suite_from_github()")
-'''
-
-with open(toolkit_path, "w") as f:
-    f.write(toolkit_code)
-
-# 3. Registrar en menu.py
-menu_hook = "\n# --- PERFECT FRAME SUITE ---\nimport pf_toolkit\npf_toolkit.build_pf_menus()\n"
-existing_menu = ""
-if os.path.exists(menu_path):
-    with open(menu_path, "r") as f:
-        existing_menu = f.read()
-
-if "import pf_toolkit" not in existing_menu:
-    with open(menu_path, "a") as f:
-        f.write(menu_hook)
-
-# 4. Cargar de inmediato
-import sys
-if nuke_dir not in sys.path:
-    sys.path.append(nuke_dir)
-import pf_toolkit
-importlib.reload(pf_toolkit)
-pf_toolkit.build_pf_menus()
-
-nuke.message("¡Suite PERFECT FRAME configurada con soporte para GitHub!\nYa tienes el botón de sincronización en el menú superior.")
