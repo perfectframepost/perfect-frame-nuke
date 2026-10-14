@@ -3,21 +3,18 @@ import nuke
 import os
 import importlib
 import subprocess
+import shutil
 
 # --- VERSION DE LA SUITE PERFECT FRAME ---
-SUITE_VERSION = "1.0.3"
+SUITE_VERSION = "1.0.4"
 
 NUKE_DIR = os.path.expanduser("~/.nuke").replace("\\", "/")
 TOOLSETS_DIR = os.path.join(NUKE_DIR, "PF_ToolSets").replace("\\", "/")
 
 def _find_git_repo():
-    """Busca automaticamente la carpeta que contiene el repositorio git dentro de .nuke"""
-    # 1. Buscar en la subcarpeta estandar
     candidate = os.path.join(NUKE_DIR, "perfect-frame-nuke")
     if os.path.exists(os.path.join(candidate, ".git")):
         return candidate
-    
-    # 2. Si no esta ahi, buscar en todas las carpetas dentro de .nuke
     try:
         for item in os.listdir(NUKE_DIR):
             item_path = os.path.join(NUKE_DIR, item)
@@ -25,8 +22,7 @@ def _find_git_repo():
                 return item_path
     except Exception:
         pass
-        
-    return candidate # Valor por defecto si no encuentra nada
+    return candidate
 
 def _paste_tcl_node(tcl_script):
     import tempfile
@@ -99,7 +95,7 @@ def create_pf_smart_write():
 
     tab = nuke.Tab_Knob("pf_write_tab", "PF SmartWrite")
     w.addKnob(tab)
-    w.addKnob(nuke.Text_Knob("pf_info", "PERFECT FRAME v" + SUITE_VERSION, "Crea carpetas automaticamente al dar Render."))
+    w.addKnob(nuke.Text_Knob("pf_info", "Perfect Frame v" + SUITE_VERSION, "Crea carpetas automaticamente al dar Render."))
 
     auto_path_code = "import nuke, os\\nn = nuke.thisNode()\\nroot_name = nuke.root().name()\\nif not root_name or root_name == 'Root':\\n    nuke.message('Guarda primero el proyecto .nk.')\\nelse:\\n    proj_dir = os.path.dirname(root_name).replace(chr(92), '/')\\n    shot_base = os.path.splitext(os.path.basename(root_name))[0]\\n    render_path = '{0}/renders/{1}/{1}.%04d.exr'.format(proj_dir, shot_base)\\n    n['file'].setValue(render_path)\\n    n['file_type'].setValue('exr')"
     btn_auto = nuke.PyScript_Knob("btn_auto_path", "1. Autocompletar Ruta EXR", auto_path_code)
@@ -158,7 +154,7 @@ def create_pf_expoglow():
  note_font_size 14
  selected true
  addUserKnob {20 pf_glow_tab l "PF ExpoGlow"}
- addUserKnob {26 info l "PERFECT FRAME" T "Glow exponencial con caida fisica realista"}
+ addUserKnob {26 info l "Perfect Frame" T "Glow exponencial con caida fisica realista"}
  addUserKnob {7 intensity l "Intensidad Global" R 0 5}
  intensity 1
  addUserKnob {7 threshold l "Umbral de Altas Luces (Threshold)" R 0 2}
@@ -284,7 +280,7 @@ def create_pf_slate():
  label "Artista: \\[value artist_name]\\nEstado: \\[value shot_status]"
  selected true
  addUserKnob {20 pf_slate_tab l "PF Slate Burn-In"}
- addUserKnob {26 info_header l "PERFECT FRAME v1.0.3" T "Generador de Burn-In para revision y control de planos"}
+ addUserKnob {26 info_header l "Perfect Frame v1.0.4" T "Generador de Burn-In para revision y control de planos"}
  addUserKnob {26 div_id l "Identificacion del Plano"}
  addUserKnob {1 artist_name l "Artista Responsable"}
  artist_name "SIN ASIGNAR"
@@ -297,7 +293,7 @@ def create_pf_slate():
  shot_notes "v001 - Comp Preliminar"
  addUserKnob {26 div_style l "Apariencia Visual"}
  addUserKnob {1 studio_title l "Titulo del Estudio"}
- studio_title "PERFECT FRAME | v1.0.3"
+ studio_title "Perfect Frame | v1.0.4"
  addUserKnob {7 bar_height l "Altura de Barras (px)" R 25 120}
  bar_height 55
  addUserKnob {7 bar_opacity l "Opacidad de Barras" R 0 1}
@@ -418,7 +414,7 @@ def create_pf_qc_inspector():
  label "Modo: \\[value qc_mode]"
  selected true
  addUserKnob {20 pf_qc_tab l "PF QC Inspector"}
- addUserKnob {26 info l "PERFECT FRAME QC" T "Inspector tecnico antes de exportar. Input 1: Comp | Input 2: Plate Original"}
+ addUserKnob {26 info l "Perfect Frame QC" T "Inspector tecnico antes de exportar. Input 1: Comp | Input 2: Plate Original"}
  addUserKnob {4 qc_mode l "Modo de Inspeccion" M {"Pass-Through (Comp Final)" "Diferencia Extrema vs Plate" "Mapa de Grano / Nitidez (High-Pass)" "Detector de Pixeles Rotos (NaN / Negativos)"}}
  addUserKnob {6 fix_nans l "Reparar NaNs y Negativos Automaticamente en la Salida" +STARTLINE}
  fix_nans true
@@ -524,7 +520,7 @@ def update_suite_from_github():
     try:
         repo_path = _find_git_repo()
         if not os.path.exists(os.path.join(repo_path, ".git")):
-            nuke.message("Error: No se encontro una carpeta con repositorio Git valido en:\\n" + repo_path)
+            nuke.message("Error: No se encontro una carpeta con repositorio Git valido en:\n" + repo_path)
             return
 
         process = subprocess.Popen(["git", "pull"], cwd=repo_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
@@ -537,20 +533,57 @@ def update_suite_from_github():
             output_msg = stdout.decode('utf-8', errors='ignore').strip()
             if not output_msg:
                 output_msg = "La suite ya estaba en su version mas reciente."
-            nuke.message("¡Actualizacion exitosa desde GitHub! (v" + SUITE_VERSION + ")\\n\\n" + output_msg)
+            nuke.message("¡Actualizacion exitosa desde GitHub! (v" + SUITE_VERSION + ")\n\n" + output_msg)
         else:
             err_msg = stderr.decode('utf-8', errors='ignore').strip()
-            nuke.message("Error al sincronizar con GitHub:\\n" + err_msg)
+            nuke.message("Error al sincronizar con GitHub:\n" + err_msg)
     except Exception as e:
-        nuke.message("No se pudo ejecutar Git Pull:\\n" + str(e))
+        nuke.message("No se pudo ejecutar Git Pull:\n" + str(e))
 
 # ==============================================================================
-# CONSTRUCCION DE MENUS
+# FUNCION DE DESINSTALACION AUTOMATICA
+# ==============================================================================
+def uninstall_perfect_frame():
+    confirm = nuke.ask("¿Estás seguro de que deseas desinstalar la suite Perfect Frame de este equipo?\nSe eliminarán los ganchos de configuración y los archivos locales.")
+    if not confirm:
+        return
+    
+    try:
+        init_path = os.path.join(NUKE_DIR, "init.py").replace("\\", "/")
+        menu_path = os.path.join(NUKE_DIR, "menu.py").replace("\\", "/")
+        repo_path = _find_git_repo()
+
+        # 1. Limpiar init.py
+        if os.path.exists(init_path):
+            with open(init_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            clean_lines = [l for l in lines if "perfect-frame-nuke" not in l and "PERFECT FRAME" not in l]
+            with open(init_path, "w", encoding="utf-8") as f:
+                f.writelines(clean_lines)
+
+        # 2. Limpiar menu.py
+        if os.path.exists(menu_path):
+            with open(menu_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            clean_lines = [l for l in lines if "pf_toolkit" not in l and "PERFECT FRAME" not in l]
+            with open(menu_path, "w", encoding="utf-8") as f:
+                f.writelines(clean_lines)
+
+        # 3. Borrar la carpeta del repositorio físico
+        if os.path.exists(repo_path) and ".nuke" in repo_path:
+            shutil.rmtree(repo_path)
+
+        nuke.message("Desinstalación completada con éxito.\nReinicia Nuke para finalizar la limpieza del sistema.")
+    except Exception as e:
+        nuke.message("Ocurrió un error durante la desinstalación: " + str(e))
+
+# ==============================================================================
+# CONSTRUCCION DE MENUS (Tipografía refinada: Perfect Frame)
 # ==============================================================================
 def build_pf_menus():
     for bar_name in ["Nuke", "Nodes"]:
         menubar = nuke.menu(bar_name)
-        pf_menu = menubar.addMenu("PERFECT FRAME")
+        pf_menu = menubar.addMenu("Perfect Frame")
         pf_menu.clearMenu()
 
         # 1. Pipeline y Rutas
@@ -566,7 +599,7 @@ def build_pf_menus():
         # 3. QC y Entregas
         qc = pf_menu.addMenu("3. QC y Entregas")
         qc.addCommand("PF Slate Burn-In (Con Artista)", "import pf_toolkit; pf_toolkit.create_pf_slate()")
-        qc.addCommand("PF QC Inspector (NaNs, Diff y Grano)", "import pf_toolkit; pf_toolkit.create_pf_qc_inspector()")
+        qc.addCommand("PF QC Inspector (NaNs, Diff y Grano)", "import pf_toolkit; pf_qc_inspector = pf_toolkit.create_pf_qc_inspector()")
 
         # 4. ToolSets personalizados locales
         custom_menu = pf_menu.addMenu("4. ToolSets del Estudio")
@@ -580,3 +613,4 @@ def build_pf_menus():
 
         pf_menu.addSeparator()
         pf_menu.addCommand("🔄 Sincronizar / Actualizar desde GitHub (v" + SUITE_VERSION + ")", "import pf_toolkit; pf_toolkit.update_suite_from_github()")
+        pf_menu.addCommand("🗑️ Desinstalar Suite", "import pf_toolkit; pf_toolkit.uninstall_perfect_frame()")
