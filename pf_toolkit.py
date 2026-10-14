@@ -5,11 +5,28 @@ import importlib
 import subprocess
 
 # --- VERSION DE LA SUITE PERFECT FRAME ---
-SUITE_VERSION = "1.0.2"
+SUITE_VERSION = "1.0.3"
 
 NUKE_DIR = os.path.expanduser("~/.nuke").replace("\\", "/")
 TOOLSETS_DIR = os.path.join(NUKE_DIR, "PF_ToolSets").replace("\\", "/")
-REPO_DIR = os.path.join(NUKE_DIR, "perfect-frame-nuke").replace("\\", "/")
+
+def _find_git_repo():
+    """Busca automaticamente la carpeta que contiene el repositorio git dentro de .nuke"""
+    # 1. Buscar en la subcarpeta estandar
+    candidate = os.path.join(NUKE_DIR, "perfect-frame-nuke")
+    if os.path.exists(os.path.join(candidate, ".git")):
+        return candidate
+    
+    # 2. Si no esta ahi, buscar en todas las carpetas dentro de .nuke
+    try:
+        for item in os.listdir(NUKE_DIR):
+            item_path = os.path.join(NUKE_DIR, item)
+            if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, ".git")):
+                return item_path
+    except Exception:
+        pass
+        
+    return candidate # Valor por defecto si no encuentra nada
 
 def _paste_tcl_node(tcl_script):
     import tempfile
@@ -267,7 +284,7 @@ def create_pf_slate():
  label "Artista: \\[value artist_name]\\nEstado: \\[value shot_status]"
  selected true
  addUserKnob {20 pf_slate_tab l "PF Slate Burn-In"}
- addUserKnob {26 info_header l "PERFECT FRAME v1.0.2" T "Generador de Burn-In para revision y control de planos"}
+ addUserKnob {26 info_header l "PERFECT FRAME v1.0.3" T "Generador de Burn-In para revision y control de planos"}
  addUserKnob {26 div_id l "Identificacion del Plano"}
  addUserKnob {1 artist_name l "Artista Responsable"}
  artist_name "SIN ASIGNAR"
@@ -280,7 +297,7 @@ def create_pf_slate():
  shot_notes "v001 - Comp Preliminar"
  addUserKnob {26 div_style l "Apariencia Visual"}
  addUserKnob {1 studio_title l "Titulo del Estudio"}
- studio_title "PERFECT FRAME | v1.0.2"
+ studio_title "PERFECT FRAME | v1.0.3"
  addUserKnob {7 bar_height l "Altura de Barras (px)" R 25 120}
  bar_height 55
  addUserKnob {7 bar_opacity l "Opacidad de Barras" R 0 1}
@@ -501,12 +518,16 @@ end_group"""
     _save_and_paste_tcl(tcl)
 
 # ==============================================================================
-# FUNCION DE ACTUALIZACION DESDE GITHUB (GIT PULL)
+# FUNCION DE ACTUALIZACION DESDE GITHUB (GIT PULL INTELIGENTE)
 # ==============================================================================
 def update_suite_from_github():
     try:
-        # CORRECCION: Se ejecuta git pull dentro de la subcarpeta del repositorio
-        process = subprocess.Popen(["git", "pull"], cwd=REPO_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        repo_path = _find_git_repo()
+        if not os.path.exists(os.path.join(repo_path, ".git")):
+            nuke.message("Error: No se encontro una carpeta con repositorio Git valido en:\\n" + repo_path)
+            return
+
+        process = subprocess.Popen(["git", "pull"], cwd=repo_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
         stdout, stderr = process.communicate()
         
         if process.returncode == 0:
