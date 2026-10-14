@@ -8,24 +8,34 @@ import stat
 import tempfile
 
 # --- VERSION DE LA SUITE PERFECT FRAME ---
-SUITE_VERSION = "1.0.7"
+SUITE_VERSION = "1.0.8"
 
 NUKE_DIR = os.path.expanduser("~/.nuke").replace("\\", "/")
-TOOLSETS_DIR = os.path.join(NUKE_DIR, "PF_ToolSets").replace("\\", "/")
 
 
 def _find_git_repo():
-    candidate = os.path.join(NUKE_DIR, "perfect-frame-nuke")
+    candidate = os.path.join(NUKE_DIR, "perfect-frame-nuke").replace("\\", "/")
     if os.path.exists(os.path.join(candidate, ".git")):
         return candidate
     try:
         for item in os.listdir(NUKE_DIR):
-            item_path = os.path.join(NUKE_DIR, item)
+            item_path = os.path.join(NUKE_DIR, item).replace("\\", "/")
             if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, ".git")):
                 return item_path
     except Exception:
         pass
     return candidate
+
+
+def _get_toolsets_dir():
+    repo_dir = _find_git_repo()
+    ts_dir = os.path.join(repo_dir, "PF_ToolSets").replace("\\", "/")
+    if not os.path.exists(ts_dir):
+        try:
+            os.makedirs(ts_dir)
+        except Exception:
+            pass
+    return ts_dir
 
 
 def _paste_tcl_node(tcl_script):
@@ -416,7 +426,7 @@ def create_pf_slate():
  label "Artista: \\[value artist_name]\\nEstado: \\[value shot_status]"
  selected true
  addUserKnob {20 pf_slate_tab l "PF Slate Burn-In"}
- addUserKnob {26 info_header l "Perfect Frame v1.0.7" T "Generador de Burn-In para revision y control de planos"}
+ addUserKnob {26 info_header l "Perfect Frame v1.0.8" T "Generador de Burn-In para revision y control de planos"}
  addUserKnob {26 div_id l "Identificacion del Plano"}
  addUserKnob {1 artist_name l "Artista Responsable"}
  artist_name "SIN ASIGNAR"
@@ -429,7 +439,7 @@ def create_pf_slate():
  shot_notes "v001 - Comp Preliminar"
  addUserKnob {26 div_style l "Apariencia Visual"}
  addUserKnob {1 studio_title l "Titulo del Estudio"}
- studio_title "Perfect Frame | v1.0.7"
+ studio_title "Perfect Frame | v1.0.8"
  addUserKnob {7 bar_height l "Altura de Barras (px)" R 25 120}
  bar_height 55
  addUserKnob {7 bar_opacity l "Opacidad de Barras" R 0 1}
@@ -652,6 +662,79 @@ end_group"""
 
 
 # ==============================================================================
+# 7. GESTOR DE TOOLSETS DEL ESTUDIO (Guardar, Cargar y Explorar)
+# ==============================================================================
+def save_selected_as_toolset():
+    sel = nuke.selectedNodes()
+    if not sel:
+        nuke.message("Selecciona primero en el Node Graph los nodos que deseas guardar como ToolSet.")
+        return
+
+    panel = nuke.Panel("Guardar Nuevo ToolSet - Perfect Frame")
+    panel.addSingleLineInput("Categoria (Subcarpeta):", "General")
+    panel.addSingleLineInput("Nombre del ToolSet:", "")
+    if not panel.show():
+        return
+
+    category = panel.value("Categoria (Subcarpeta):").strip().replace("\\", "/")
+    name = panel.value("Nombre del ToolSet:").strip()
+
+    if not name:
+        nuke.message("Debes asignar un nombre al ToolSet.")
+        return
+
+    # Limpiar caracteres especiales no deseados en nombres de archivo
+    invalid_chars = '<>:"|?*'
+    for ch in invalid_chars:
+        category = category.replace(ch, "")
+        name = name.replace(ch, "")
+
+    if name.lower().endswith(".nk"):
+        name = name[:-3]
+
+    ts_base_dir = _get_toolsets_dir()
+    target_dir = os.path.join(ts_base_dir, category).replace("\\", "/") if category else ts_base_dir
+
+    if not os.path.exists(target_dir):
+        os.makedirs(target_dir)
+
+    file_path = os.path.join(target_dir, name + ".nk").replace("\\", "/")
+
+    if os.path.exists(file_path):
+        overwrite = nuke.ask("El ToolSet '" + name + "' ya existe en esa categoria.\n¿Deseas sobrescribirlo?")
+        if not overwrite:
+            return
+
+    nuke.nodeCopy(file_path)
+    build_pf_menus()
+
+    nuke.message(
+        "¡ToolSet guardado con exito!\n\n"
+        "Ubicacion: " + file_path + "\n\n"
+        "Ya aparece disponible en el menu '4. ToolSets del Estudio'.\n"
+        "Recuerda hacer Commit y Push en GitHub Desktop para compartirlo con todos los artistas."
+    )
+
+
+def open_toolsets_folder():
+    ts_dir = _get_toolsets_dir()
+    try:
+        if os.name == "nt":
+            os.startfile(ts_dir.replace("/", "\\"))
+        else:
+            subprocess.Popen(["open", ts_dir])
+    except Exception as e:
+        nuke.message("Ruta de ToolSets:\n" + ts_dir + "\n\nError al abrir ventana: " + str(e))
+
+
+def load_pf_toolset(file_path):
+    if os.path.exists(file_path):
+        nuke.nodePaste(file_path)
+    else:
+        nuke.message("No se encontro el archivo de ToolSet:\n" + file_path)
+
+
+# ==============================================================================
 # FUNCION DE ACTUALIZACION DESDE GITHUB (Sin shell=True)
 # ==============================================================================
 def update_suite_from_github():
@@ -733,6 +816,8 @@ def uninstall_perfect_frame():
 # CONSTRUCCION DE MENUS
 # ==============================================================================
 def build_pf_menus():
+    ts_dir = _get_toolsets_dir()
+
     for bar_name in ["Nuke", "Nodes"]:
         menubar = nuke.menu(bar_name)
         pf_menu = menubar.addMenu("Perfect Frame")
@@ -751,13 +836,31 @@ def build_pf_menus():
         qc.addCommand("PF QC Inspector (NaNs, Diff y Grano)", "import pf_toolkit; pf_toolkit.create_pf_qc_inspector()")
 
         custom_menu = pf_menu.addMenu("4. ToolSets del Estudio")
-        if os.path.exists(TOOLSETS_DIR):
-            for root, dirs, files in os.walk(TOOLSETS_DIR):
+        custom_menu.addCommand(
+            "➕ Guardar Seleccion como ToolSet...",
+            "import pf_toolkit; pf_toolkit.save_selected_as_toolset()"
+        )
+        custom_menu.addCommand(
+            "📂 Abrir Carpeta de ToolSets",
+            "import pf_toolkit; pf_toolkit.open_toolsets_folder()"
+        )
+        custom_menu.addSeparator()
+
+        found_any = False
+        if os.path.exists(ts_dir):
+            for root, dirs, files in os.walk(ts_dir):
                 for f in sorted(files):
                     if f.endswith(".nk"):
+                        found_any = True
                         full_p = os.path.join(root, f).replace("\\", "/")
-                        rel_p = os.path.relpath(full_p, TOOLSETS_DIR).replace("\\", "/")[:-3]
-                        custom_menu.addCommand(rel_p, "nuke.nodePaste('{0}')".format(full_p))
+                        rel_p = os.path.relpath(full_p, ts_dir).replace("\\", "/")[:-3]
+                        custom_menu.addCommand(
+                            rel_p,
+                            "import pf_toolkit; pf_toolkit.load_pf_toolset('{0}')".format(full_p)
+                        )
+
+        if not found_any:
+            custom_menu.addCommand("(Sin ToolSets guardados aun)", "pass")
 
         pf_menu.addSeparator()
         pf_menu.addCommand(
